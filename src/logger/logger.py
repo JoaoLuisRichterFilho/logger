@@ -1,4 +1,12 @@
-"""Singleton execution logger backed by Python's standard logging package."""
+
+"""Registro de mensagens no console e em arquivos diários.
+
+O módulo oferece funções de conveniência e a classe :class:`ExecutionLogger`.
+É necessário chamar :func:`initialize` antes de usar as funções do módulo.
+Mensagens de depuração são exibidas somente no console; mensagens INFO,
+WARNING e ERROR também são gravadas em um arquivo por dia. O identificador
+de execução, quando definido, é incluído nas mensagens seguintes.
+"""
 
 import copy
 import logging
@@ -20,6 +28,8 @@ _LEVEL_COLORS = {
 
 
 class _AlignedFormatter(logging.Formatter):
+    """Formata mensagens com níveis alinhados e detalhes opcionais da chamada."""
+
     def __init__(
         self,
         fmt: str,
@@ -28,11 +38,20 @@ class _AlignedFormatter(logging.Formatter):
         use_colors: bool = False,
         detailed: bool = False,
     ) -> None:
+        """Configura o formato, as cores do console e o modo detalhado.
+
+        Args:
+            fmt: Modelo de formatação da biblioteca ``logging``.
+            datefmt: Formato usado para a data e hora.
+            use_colors: Se verdadeiro, aplica cores ANSI ao nível da mensagem.
+            detailed: Se verdadeiro, inclui módulo e função de origem.
+        """
         super().__init__(fmt, datefmt=datefmt)
         self._use_colors = use_colors
         self._detailed = detailed
 
     def format(self, record: logging.LogRecord) -> str:
+        """Produz uma linha formatada sem modificar o registro original."""
         formatted_record = copy.copy(record)
         if self._detailed:
             caller = (
@@ -64,21 +83,26 @@ class _AlignedFormatter(logging.Formatter):
 
 
 class _ExecutionIdFilter(logging.Filter):
+    """Acrescenta aos registros o identificador atual da execução."""
+
     def __init__(self, logger_instance: "ExecutionLogger") -> None:
+        """Associa o filtro à instância que fornece o identificador."""
         super().__init__()
         self._logger_instance = logger_instance
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """Define ``execution_id`` no registro e permite seu processamento."""
         record.execution_id = self._logger_instance._execution_id
         return True
 
 
 class ExecutionLogger:
-    """Log to the console and to one timestamped file per calendar day.
+    """Registra mensagens no console e em um arquivo datado por dia.
 
-    The first construction fixes the output folder for the lifetime of the
-    process. Reconstructing the singleton with a different folder raises
-    ``RuntimeError`` rather than silently redirecting logs.
+    A primeira inicialização define a pasta de saída durante todo o processo.
+    Uma nova inicialização com outra pasta gera ``RuntimeError``. O modo
+    detalhado pode ser alterado em inicializações posteriores para a mesma
+    pasta. As operações de escrita são sincronizadas entre threads.
     """
 
     _instance: Optional["ExecutionLogger"] = None
@@ -92,6 +116,15 @@ class ExecutionLogger:
         log_folder: Union[str, Path],
         detailed: bool = False,
     ) -> "ExecutionLogger":
+        """Obtém a instância singleton de :class:`ExecutionLogger`.
+
+        Args:
+            log_folder: Pasta de destino dos arquivos de log.
+            detailed: Indica se os registros devem incluir módulo e função.
+
+        Returns:
+            A única instância de :class:`ExecutionLogger` no processo.
+        """
         with cls._instance_lock:
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
@@ -100,6 +133,16 @@ class ExecutionLogger:
             return cls._instance
 
     def __init__(self, log_folder: Union[str, Path], detailed: bool = False) -> None:
+        """Inicializa os destinos de log na pasta indicada.
+
+        Args:
+            log_folder: Pasta onde serão criados os arquivos diários.
+            detailed: Inclui módulo e função de origem nas mensagens.
+
+        Raises:
+            TypeError: Se ``detailed`` não for booleano.
+            RuntimeError: Se a instância já estiver vinculada a outra pasta.
+        """
         if not isinstance(detailed, bool):
             raise TypeError("detailed must be a bool.")
 
@@ -140,6 +183,11 @@ class ExecutionLogger:
             self._initialized = True
 
     def _set_detailed(self, detailed: bool) -> None:
+        """Atualiza o modo detalhado nos formatadores ativos.
+
+        Args:
+            detailed: Se verdadeiro, inclui módulo e função de origem.
+        """
         with self._lock:
             self._detailed = detailed
             self._console_handler.setFormatter(
@@ -156,23 +204,61 @@ class ExecutionLogger:
                 )
 
     def debug(self, message: object, *args: Any, **kwargs: Any) -> None:
-        """Write a debug message to the console only."""
+        """Registra uma mensagem de depuração somente no console.
+
+        Args:
+            message: Texto da mensagem, que pode usar formatação do ``logging``.
+            *args: Valores posicionais usados na formatação da mensagem.
+            **kwargs: Opções adicionais aceitas por ``logging.Logger.log``.
+        """
         self._write(logging.DEBUG, message, args, kwargs, stacklevel=3)
 
     def info(self, message: object, *args: Any, **kwargs: Any) -> None:
-        """Write an info message to the console and daily log file."""
+        """Registra uma informação no console e no arquivo diário.
+
+        Args:
+            message: Texto da mensagem, que pode usar formatação do ``logging``.
+            *args: Valores posicionais usados na formatação da mensagem.
+            **kwargs: Opções adicionais aceitas por ``logging.Logger.log``.
+        """
         self._write(logging.INFO, message, args, kwargs, stacklevel=3)
 
     def warning(self, message: object, *args: Any, **kwargs: Any) -> None:
-        """Write a warning message to the console and daily log file."""
+        """Registra um aviso no console e no arquivo diário.
+
+        A linha do aviso é exibida em amarelo no console.
+
+        Args:
+            message: Texto da mensagem, que pode usar formatação do ``logging``.
+            *args: Valores posicionais usados na formatação da mensagem.
+            **kwargs: Opções adicionais aceitas por ``logging.Logger.log``.
+        """
         self._write(logging.WARNING, message, args, kwargs, stacklevel=3)
 
     def error(self, message: object, *args: Any, **kwargs: Any) -> None:
-        """Write an error message to the console and daily log file."""
+        """Registra um erro no console e no arquivo diário.
+
+        A linha do erro é exibida em vermelho no console.
+
+        Args:
+            message: Texto da mensagem, que pode usar formatação do ``logging``.
+            *args: Valores posicionais usados na formatação da mensagem.
+            **kwargs: Opções adicionais aceitas por ``logging.Logger.log``.
+        """
         self._write(logging.ERROR, message, args, kwargs, stacklevel=3)
 
     def definir_id_execucao(self, execution_id: Optional[str]) -> None:
-        """Set the ID included in subsequent logs, or clear it with ``None``."""
+        """Define ou limpa o ID de execução dos próximos registros.
+
+        O ID definido aparece entre colchetes após o nível do log e permanece
+        ativo até esta função ser chamada novamente com ``None``.
+
+        Args:
+            execution_id: ID textual da execução ou ``None`` para removê-lo.
+
+        Raises:
+            TypeError: Se o valor não for uma string nem ``None``.
+        """
         if execution_id is not None and not isinstance(execution_id, str):
             raise TypeError("execution_id must be a string or None.")
         with self._lock:
@@ -187,12 +273,26 @@ class ExecutionLogger:
         *,
         stacklevel: int,
     ) -> None:
+        """Envia uma mensagem ao logger e prepara o arquivo diário se necessário.
+
+        Args:
+            level: Nível de severidade definido pelo módulo ``logging``.
+            message: Texto ou objeto que será registrado.
+            args: Valores posicionais para formatar a mensagem.
+            kwargs: Opções adicionais para a chamada do logger.
+            stacklevel: Quantidade de quadros ignorados para localizar a origem.
+        """
         with self._lock:
             if level != logging.DEBUG:
                 self._ensure_daily_file(datetime.now())
             self._logger.log(level, message, *args, stacklevel=stacklevel, **kwargs)
 
     def _ensure_daily_file(self, timestamp: datetime) -> None:
+        """Abre ou troca o arquivo de log correspondente à data informada.
+
+        Args:
+            timestamp: Data e hora usadas para determinar o nome do arquivo.
+        """
         log_date = timestamp.date()
         if self._file_handler is not None and log_date == self._log_date:
             return
@@ -227,7 +327,20 @@ def initialize(
     log_folder: Union[str, Path],
     detailed: bool = False,
 ) -> ExecutionLogger:
-    """Initialize the shared logger and optionally include call-site details."""
+    """Inicializa e retorna o logger compartilhado.
+
+    Args:
+        log_folder: Pasta de destino dos arquivos de log.
+        detailed: Se verdadeiro, inclui módulo e função de origem antes da
+            mensagem. O padrão é ``False``.
+
+    Returns:
+        A instância compartilhada de :class:`ExecutionLogger`.
+
+    Raises:
+        TypeError: Se ``detailed`` não for booleano.
+        RuntimeError: Se o singleton já estiver associado a outra pasta.
+    """
     global _instance
     instance = ExecutionLogger(log_folder, detailed=detailed)
     _instance = instance
@@ -235,24 +348,69 @@ def initialize(
 
 
 def _get_instance() -> ExecutionLogger:
+    """Retorna o logger inicializado ou informa como inicializá-lo."""
     if _instance is None:
         raise RuntimeError("Call logger.initialize(log_folder) before logging.")
     return _instance
 
 
 def debug(message: object, *args: Any, **kwargs: Any) -> None:
+    """Registra uma mensagem de depuração somente no console.
+
+    Args:
+        message: Texto da mensagem, que pode usar formatação do ``logging``.
+        *args: Valores posicionais usados na formatação da mensagem.
+        **kwargs: Opções adicionais aceitas por ``logging.Logger.log``.
+
+    Raises:
+        RuntimeError: Se ``initialize`` ainda não tiver sido chamado.
+    """
     _module_log(logging.DEBUG, message, args, kwargs)
 
 
 def info(message: object, *args: Any, **kwargs: Any) -> None:
+    """Registra uma informação no console e no arquivo diário.
+
+    Args:
+        message: Texto da mensagem, que pode usar formatação do ``logging``.
+        *args: Valores posicionais usados na formatação da mensagem.
+        **kwargs: Opções adicionais aceitas por ``logging.Logger.log``.
+
+    Raises:
+        RuntimeError: Se ``initialize`` ainda não tiver sido chamado.
+    """
     _module_log(logging.INFO, message, args, kwargs)
 
 
 def warning(message: object, *args: Any, **kwargs: Any) -> None:
+    """Registra um aviso no console e no arquivo diário.
+
+    A linha do aviso é exibida em amarelo no console.
+
+    Args:
+        message: Texto da mensagem, que pode usar formatação do ``logging``.
+        *args: Valores posicionais usados na formatação da mensagem.
+        **kwargs: Opções adicionais aceitas por ``logging.Logger.log``.
+
+    Raises:
+        RuntimeError: Se ``initialize`` ainda não tiver sido chamado.
+    """
     _module_log(logging.WARNING, message, args, kwargs)
 
 
 def error(message: object, *args: Any, **kwargs: Any) -> None:
+    """Registra um erro no console e no arquivo diário.
+
+    A linha do erro é exibida em vermelho no console.
+
+    Args:
+        message: Texto da mensagem, que pode usar formatação do ``logging``.
+        *args: Valores posicionais usados na formatação da mensagem.
+        **kwargs: Opções adicionais aceitas por ``logging.Logger.log``.
+
+    Raises:
+        RuntimeError: Se ``initialize`` ainda não tiver sido chamado.
+    """
     _module_log(logging.ERROR, message, args, kwargs)
 
 
@@ -262,9 +420,21 @@ def _module_log(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
 ) -> None:
+    """Encaminha a mensagem à instância compartilhada com nível indicado."""
     _get_instance()._write(level, message, args, kwargs, stacklevel=4)
 
 
 def definir_id_execucao(execution_id: Optional[str]) -> None:
-    """Set the ID included in subsequent logs, or clear it with ``None``."""
+    """Define ou limpa o ID de execução das próximas mensagens.
+
+    O ID aparece entre colchetes após o nível e permanece ativo até ser limpo
+    com ``None``.
+
+    Args:
+        execution_id: ID textual da execução ou ``None`` para removê-lo.
+
+    Raises:
+        RuntimeError: Se ``initialize`` ainda não tiver sido chamado.
+        TypeError: Se o valor não for uma string nem ``None``.
+    """
     _get_instance().definir_id_execucao(execution_id)

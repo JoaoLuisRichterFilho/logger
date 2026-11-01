@@ -1,7 +1,7 @@
-"""Standardized execution logging.
+"""Biblioteca para registro padronizado de mensagens de execução.
 
-Use ``initialize(log_folder)`` once, then call ``debug``, ``info``,
-``warning`` or ``error`` at module level.
+Chame ``initialize(pasta, detailed=False)`` antes de usar as funções
+``debug``, ``info``, ``warning``, ``error`` ou ``definir_id_execucao``.
 """
 
 from .logger import (
