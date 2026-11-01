@@ -5,7 +5,7 @@ Biblioteca criada para geração simplificada de logs e reutilização em outros
 ## Instalação
 
 ```bash
-pip install git+https://github.com/JoaoLuisRichterFilho/logger.git
+pip install git+https://github.com/JoaoLuisRichterFilho/logger.git@vX.X.X
 ```
 
 ## Uso
