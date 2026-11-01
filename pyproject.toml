@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "logger"
-version = "0.1.0"
-description = "A small, standardized execution logging library."
+version = "1.0.0"
+description = "Uma biblioteca pequena e padronizada para registro de execução."
 readme = "README.md"
 requires-python = ">=3.9"
 classifiers = [
