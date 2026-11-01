@@ -14,7 +14,7 @@ pip install git+https://github.com/JoaoLuisRichterFilho/logger.git
 ```python
 import logger
 
-logger.initialize("logs")
+logger.initialize("logs", detailed=True)
 logger.definir_id_execucao("123ABC")
 logger.debug("Detalhe útil durante o desenvolvimento")
 logger.info("Execução iniciada")
@@ -23,10 +23,15 @@ logger.error("Não foi possível concluir a operação")
 logger.definir_id_execucao(None)  # limpa o ID para os próximos logs
 ```
 
-`logger.initialize("logs")` recebe a pasta de destino e inicializa o singleton.
-Uma nova inicialização com a mesma pasta retorna a mesma instância; tentar usar
-outra pasta gera `RuntimeError`. Os métodos também estão disponíveis por meio
-da instância retornada por `initialize`, se necessário.
+`logger.initialize("logs", detailed=False)` recebe a pasta de destino e
+inicializa o singleton. Com `detailed=True`, cada mensagem inclui o módulo e a
+função que geraram o log, separados por ponto e vírgula, antes do texto da
+mensagem (por exemplo: `test_logger;minha_funcao; Minha msg`). O valor padrão é
+`False`. Quando a chamada vem diretamente do nível do módulo, sem uma função,
+apenas o nome do módulo é exibido antes da mensagem. Rechamadas com a mesma
+pasta podem ativar ou desativar esse modo; uma pasta diferente gera
+`RuntimeError`. Os métodos também estão disponíveis por meio da instância
+retornada por `initialize`, se necessário.
 
 Todos os níveis são exibidos no console. `info`, `warning` e `error` também são
 gravados em arquivo; `debug` não é gravado. As cores no console são azul para

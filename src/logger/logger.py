@@ -11,7 +11,7 @@ from typing import Any, Optional, Union
 
 _LOG_FORMAT = "%(asctime)s %(levelname)s%(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-_LEVEL_COLUMN_WIDTH = 16
+_LEVEL_COLUMN_WIDTH = len("[WARNING]") + 1
 _LEVEL_COLORS = {
     logging.INFO: "\033[34m",
     logging.WARNING: "\033[33m",
@@ -26,15 +26,30 @@ class _AlignedFormatter(logging.Formatter):
         datefmt: str,
         *,
         use_colors: bool = False,
+        detailed: bool = False,
     ) -> None:
         super().__init__(fmt, datefmt=datefmt)
         self._use_colors = use_colors
+        self._detailed = detailed
 
     def format(self, record: logging.LogRecord) -> str:
         formatted_record = copy.copy(record)
+        if self._detailed:
+            caller = (
+                f"{record.module};{record.funcName}"
+                if record.funcName != "<module>"
+                else record.module
+            )
+            formatted_record.msg = f"{caller}; {record.getMessage()}"
+            formatted_record.args = ()
+
         level_label = f"[{record.levelname}]"
         color = _LEVEL_COLORS.get(record.levelno) if self._use_colors else None
-        if color is not None:
+        color_entire_line = color is not None and record.levelno in (
+            logging.WARNING,
+            logging.ERROR,
+        )
+        if color is not None and not color_entire_line:
             level_label = f"{color}{level_label}\033[0m"
 
         label_width = len(f"[{record.levelname}]")
@@ -42,7 +57,10 @@ class _AlignedFormatter(logging.Formatter):
         execution_id = getattr(record, "execution_id", None)
         id_label = f"[{execution_id}] " if execution_id is not None else ""
         formatted_record.levelname = f"{level_label}{padding}{id_label}"
-        return super().format(formatted_record)
+        formatted_message = super().format(formatted_record)
+        if color_entire_line:
+            return f"{color}{formatted_message}\033[0m"
+        return formatted_message
 
 
 class _ExecutionIdFilter(logging.Filter):
@@ -67,7 +85,11 @@ class ExecutionLogger:
     _instance_lock = threading.Lock()
     _initialization_lock = threading.Lock()
 
-    def __new__(cls, log_folder: Union[str, Path]) -> "ExecutionLogger":
+    def __new__(
+        cls,
+        log_folder: Union[str, Path],
+        detailed: bool = False,
+    ) -> "ExecutionLogger":
         with cls._instance_lock:
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
@@ -75,7 +97,10 @@ class ExecutionLogger:
                 cls._instance._lock = threading.RLock()
             return cls._instance
 
-    def __init__(self, log_folder: Union[str, Path]) -> None:
+    def __init__(self, log_folder: Union[str, Path], detailed: bool = False) -> None:
+        if not isinstance(detailed, bool):
+            raise TypeError("detailed must be a bool.")
+
         with self._initialization_lock:
             folder = Path(log_folder).expanduser().resolve()
             if self._initialized:
@@ -83,6 +108,7 @@ class ExecutionLogger:
                     raise RuntimeError(
                         "ExecutionLogger is already initialized with a different folder."
                     )
+                self._set_detailed(detailed)
                 return
 
             folder.mkdir(parents=True, exist_ok=True)
@@ -101,29 +127,47 @@ class ExecutionLogger:
                     _LOG_FORMAT,
                     datefmt=_DATE_FORMAT,
                     use_colors=True,
+                    detailed=detailed,
                 )
             )
             self._logger.addHandler(self._console_handler)
 
             self._file_handler: Optional[logging.FileHandler] = None
             self._log_date = None
+            self._detailed = detailed
             self._initialized = True
+
+    def _set_detailed(self, detailed: bool) -> None:
+        with self._lock:
+            self._detailed = detailed
+            self._console_handler.setFormatter(
+                _AlignedFormatter(
+                    _LOG_FORMAT,
+                    datefmt=_DATE_FORMAT,
+                    use_colors=True,
+                    detailed=detailed,
+                )
+            )
+            if self._file_handler is not None:
+                self._file_handler.setFormatter(
+                    _AlignedFormatter(_LOG_FORMAT, datefmt=_DATE_FORMAT, detailed=detailed)
+                )
 
     def debug(self, message: object, *args: Any, **kwargs: Any) -> None:
         """Write a debug message to the console only."""
-        self._write(logging.DEBUG, message, args, kwargs)
+        self._write(logging.DEBUG, message, args, kwargs, stacklevel=3)
 
     def info(self, message: object, *args: Any, **kwargs: Any) -> None:
         """Write an info message to the console and daily log file."""
-        self._write(logging.INFO, message, args, kwargs)
+        self._write(logging.INFO, message, args, kwargs, stacklevel=3)
 
     def warning(self, message: object, *args: Any, **kwargs: Any) -> None:
         """Write a warning message to the console and daily log file."""
-        self._write(logging.WARNING, message, args, kwargs)
+        self._write(logging.WARNING, message, args, kwargs, stacklevel=3)
 
     def error(self, message: object, *args: Any, **kwargs: Any) -> None:
         """Write an error message to the console and daily log file."""
-        self._write(logging.ERROR, message, args, kwargs)
+        self._write(logging.ERROR, message, args, kwargs, stacklevel=3)
 
     def definir_id_execucao(self, execution_id: Optional[str]) -> None:
         """Set the ID included in subsequent logs, or clear it with ``None``."""
@@ -138,11 +182,13 @@ class ExecutionLogger:
         message: object,
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
+        *,
+        stacklevel: int,
     ) -> None:
         with self._lock:
             if level != logging.DEBUG:
                 self._ensure_daily_file(datetime.now())
-            self._logger.log(level, message, *args, **kwargs)
+            self._logger.log(level, message, *args, stacklevel=stacklevel, **kwargs)
 
     def _ensure_daily_file(self, timestamp: datetime) -> None:
         log_date = timestamp.date()
@@ -160,7 +206,13 @@ class ExecutionLogger:
             encoding="utf-8",
         )
         handler.setLevel(logging.INFO)
-        handler.setFormatter(_AlignedFormatter(_LOG_FORMAT, datefmt=_DATE_FORMAT))
+        handler.setFormatter(
+            _AlignedFormatter(
+                _LOG_FORMAT,
+                datefmt=_DATE_FORMAT,
+                detailed=self._detailed,
+            )
+        )
         self._logger.addHandler(handler)
         self._file_handler = handler
         self._log_date = log_date
@@ -169,10 +221,13 @@ class ExecutionLogger:
 _instance: Optional[ExecutionLogger] = None
 
 
-def initialize(log_folder: Union[str, Path]) -> ExecutionLogger:
-    """Initialize the shared logger using the destination folder."""
+def initialize(
+    log_folder: Union[str, Path],
+    detailed: bool = False,
+) -> ExecutionLogger:
+    """Initialize the shared logger and optionally include call-site details."""
     global _instance
-    instance = ExecutionLogger(log_folder)
+    instance = ExecutionLogger(log_folder, detailed=detailed)
     _instance = instance
     return instance
 
@@ -184,19 +239,28 @@ def _get_instance() -> ExecutionLogger:
 
 
 def debug(message: object, *args: Any, **kwargs: Any) -> None:
-    _get_instance().debug(message, *args, **kwargs)
+    _module_log(logging.DEBUG, message, args, kwargs)
 
 
 def info(message: object, *args: Any, **kwargs: Any) -> None:
-    _get_instance().info(message, *args, **kwargs)
+    _module_log(logging.INFO, message, args, kwargs)
 
 
 def warning(message: object, *args: Any, **kwargs: Any) -> None:
-    _get_instance().warning(message, *args, **kwargs)
+    _module_log(logging.WARNING, message, args, kwargs)
 
 
 def error(message: object, *args: Any, **kwargs: Any) -> None:
-    _get_instance().error(message, *args, **kwargs)
+    _module_log(logging.ERROR, message, args, kwargs)
+
+
+def _module_log(
+    level: int,
+    message: object,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> None:
+    _get_instance()._write(level, message, args, kwargs, stacklevel=4)
 
 
 def definir_id_execucao(execution_id: Optional[str]) -> None:
