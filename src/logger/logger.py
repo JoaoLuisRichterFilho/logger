@@ -84,6 +84,8 @@ class ExecutionLogger:
     _instance: Optional["ExecutionLogger"] = None
     _instance_lock = threading.Lock()
     _initialization_lock = threading.Lock()
+    _lock: threading.RLock
+    _initialized: bool
 
     def __new__(
         cls,
