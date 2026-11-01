@@ -6,7 +6,7 @@ Uma biblioteca pequena para padronizar logs de execução com o módulo nativo
 ## Instalação
 
 ```bash
-pip install .
+pip install git+https://github.com/JoaoLuisRichterFilho/logger.git
 ```
 
 ## Uso
