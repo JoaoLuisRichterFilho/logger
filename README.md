@@ -1,7 +1,6 @@
 # logger
 
-Uma biblioteca pequena para padronizar logs de execução com o módulo nativo
-`logging` do Python.
+Biblioteca criada para geração simplificada de logs e reutilização em outros projetos, utilizando a biblioteca nativa `logging` do Python.
 
 ## Instalação
 
